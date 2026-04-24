@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  HardHat,
   LayoutDashboard,
+  PanelLeftClose,
   Users,
   Store,
   Package,
@@ -17,6 +17,7 @@ import {
   Route,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { PediObraLogo } from "@/components/brand/pediobra-logo";
 import { useTranslation } from "@/lib/i18n/language-store";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 type NavItem = {
   labelKey:
@@ -101,13 +108,79 @@ const NAV_ITEMS: NavItem[] = [
   },
 ];
 
-export function SidebarBrand({ className }: { className?: string }) {
+const SIDEBAR_COLLAPSED_STORAGE_KEY = "pediobra:sidebar-collapsed";
+const sidebarCollapsedListeners = new Set<() => void>();
+
+function readStoredSidebarCollapsed() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  try {
+    return (
+      window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function subscribeToSidebarCollapsed(listener: () => void) {
+  sidebarCollapsedListeners.add(listener);
+
+  if (typeof window === "undefined") {
+    return () => {
+      sidebarCollapsedListeners.delete(listener);
+    };
+  }
+
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key === SIDEBAR_COLLAPSED_STORAGE_KEY) {
+      listener();
+    }
+  };
+
+  window.addEventListener("storage", handleStorage);
+
+  return () => {
+    sidebarCollapsedListeners.delete(listener);
+    window.removeEventListener("storage", handleStorage);
+  };
+}
+
+function setStoredSidebarCollapsed(value: boolean) {
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.setItem(
+        SIDEBAR_COLLAPSED_STORAGE_KEY,
+        String(value),
+      );
+    } catch {
+      // Keep the toggle usable even when browser storage is unavailable.
+    }
+  }
+
+  sidebarCollapsedListeners.forEach((listener) => listener());
+}
+
+export function SidebarBrand({
+  className,
+  collapsed = false,
+}: {
+  className?: string;
+  collapsed?: boolean;
+}) {
   return (
-    <div className={cn("flex items-center gap-2.5", className)}>
-      <div className="size-8 rounded-md bg-primary flex items-center justify-center">
-        <HardHat className="size-5 text-primary-foreground" />
-      </div>
-      <span className="font-semibold tracking-tight">PediObra</span>
+    <div className={cn("flex min-w-0 items-center gap-2.5", className)}>
+      <PediObraLogo />
+      <span
+        className={cn(
+          "truncate font-semibold tracking-tight",
+          collapsed && "sr-only",
+        )}
+      >
+        PediObra
+      </span>
     </div>
   );
 }
@@ -116,10 +189,12 @@ function SidebarNav({
   className,
   linkClassName,
   onNavigate,
+  collapsed = false,
 }: {
   className?: string;
   linkClassName?: string;
   onNavigate?: () => void;
+  collapsed?: boolean;
 }) {
   const pathname = usePathname();
   const { isAdmin, isSeller } = useAuth();
@@ -133,14 +208,16 @@ function SidebarNav({
         const active =
           pathname === item.href || pathname.startsWith(`${item.href}/`);
         const Icon = item.icon;
-        return (
+        const label = t(item.labelKey);
+        const link = (
           <Link
             key={item.href}
             href={item.href}
             aria-current={active ? "page" : undefined}
             onClick={onNavigate}
             className={cn(
-              "flex min-h-11 items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+              "flex min-h-11 items-center rounded-md text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+              collapsed ? "justify-center px-0 py-2" : "gap-2.5 px-3 py-2",
               active
                 ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
                 : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/50",
@@ -148,8 +225,28 @@ function SidebarNav({
             )}
           >
             <Icon className="size-4 shrink-0" />
-            {t(item.labelKey)}
+            <span className={cn("truncate", collapsed && "sr-only")}>
+              {label}
+            </span>
           </Link>
+        );
+
+        if (!collapsed) {
+          return link;
+        }
+
+        return (
+          <Tooltip key={item.href}>
+            <TooltipTrigger asChild>{link}</TooltipTrigger>
+            <TooltipContent
+              side="right"
+              align="center"
+              arrowClassName="fill-sidebar-accent stroke-sidebar-border"
+              className="border-sidebar-border bg-sidebar-accent px-3 py-2 text-sidebar-accent-foreground shadow-2xl shadow-black/30"
+            >
+              {label}
+            </TooltipContent>
+          </Tooltip>
         );
       })}
     </nav>
@@ -200,18 +297,95 @@ export function MobileSidebar() {
 
 export function Sidebar() {
   const t = useTranslation();
+  const collapsed = useSyncExternalStore(
+    subscribeToSidebarCollapsed,
+    readStoredSidebarCollapsed,
+    () => false,
+  );
+
+  const toggleCollapsed = () => {
+    setStoredSidebarCollapsed(!collapsed);
+  };
+
+  const toggleLabel = collapsed ? t("sidebar.expand") : t("sidebar.collapse");
 
   return (
-    <aside className="hidden md:flex w-60 shrink-0 flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border">
-      <div className="h-16 flex items-center px-5 border-b border-sidebar-border">
-        <SidebarBrand />
-      </div>
+    <TooltipProvider delayDuration={120} skipDelayDuration={80}>
+      <aside
+        className={cn(
+          "hidden shrink-0 flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border transition-[width] duration-200 ease-out md:flex",
+          collapsed ? "w-16" : "w-60",
+        )}
+      >
+        <div
+          className={cn(
+            "h-16 flex items-center border-b border-sidebar-border",
+            collapsed ? "justify-center px-2" : "gap-2.5 px-4",
+          )}
+        >
+          {collapsed ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={toggleLabel}
+                  onClick={toggleCollapsed}
+                  className="inline-flex size-10 cursor-pointer items-center justify-center rounded-md text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring hover:bg-sidebar-accent"
+                >
+                  <SidebarBrand collapsed />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent
+                side="right"
+                align="center"
+                arrowClassName="fill-sidebar-accent stroke-sidebar-border"
+                className="border-sidebar-border bg-sidebar-accent px-3 py-2 text-sidebar-accent-foreground shadow-2xl shadow-black/30"
+              >
+                {toggleLabel}
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <>
+              <SidebarBrand className="flex-1" />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label={toggleLabel}
+                    onClick={toggleCollapsed}
+                    className="size-8 shrink-0 cursor-pointer text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:ring-sidebar-ring"
+                  >
+                    <PanelLeftClose className="size-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent
+                  side="right"
+                  align="center"
+                  arrowClassName="fill-sidebar-accent stroke-sidebar-border"
+                  className="border-sidebar-border bg-sidebar-accent px-3 py-2 text-sidebar-accent-foreground shadow-2xl shadow-black/30"
+                >
+                  {toggleLabel}
+                </TooltipContent>
+              </Tooltip>
+            </>
+          )}
+        </div>
 
-      <SidebarNav className="flex-1 p-3 space-y-0.5" />
+        <SidebarNav
+          collapsed={collapsed}
+          className={cn("flex-1 space-y-0.5", collapsed ? "p-2" : "p-3")}
+        />
 
-      <div className="p-3 text-[11px] text-sidebar-foreground/50 border-t border-sidebar-border">
-        {t("sidebar.footer")}
-      </div>
-    </aside>
+        {collapsed ? (
+          <div className="h-10 border-t border-sidebar-border" />
+        ) : (
+          <div className="p-3 text-[11px] text-sidebar-foreground/50 border-t border-sidebar-border">
+            {t("sidebar.footer")}
+          </div>
+        )}
+      </aside>
+    </TooltipProvider>
   );
 }

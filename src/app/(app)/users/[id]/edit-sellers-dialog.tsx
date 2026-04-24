@@ -253,10 +253,18 @@ export function EditSellersDialog({
             </div>
           ))}
 
-          <Button variant="outline" onClick={addDraft} className="w-full">
-            <Plus className="size-4" />
-            {t("sellerLinks.addStore")}
-          </Button>
+          <div className="flex justify-center pt-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={addDraft}
+              className="cursor-pointer border-dashed border-border/80 bg-background/30 px-4 text-muted-foreground hover:border-primary/60 hover:bg-primary/10 hover:text-foreground"
+            >
+              <Plus className="size-4" />
+              {t("sellerLinks.addStore")}
+            </Button>
+          </div>
         </div>
 
         <DialogFooter>
