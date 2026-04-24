@@ -15,9 +15,45 @@ export interface CreateSellerPayload {
   address: string;
   cep: string;
   phone: string;
-  logo?: string;
+  logo?: File;
   primaryColor?: string;
   secondaryColor?: string;
+}
+
+export interface UpdateSellerPayload extends Partial<CreateSellerPayload> {
+  clearLogo?: boolean;
+}
+
+function appendOptional(formData: FormData, key: string, value: unknown) {
+  if (value === undefined || value === null || value === "") return;
+
+  if (typeof File !== "undefined" && value instanceof File) {
+    formData.append(key, value);
+    return;
+  }
+
+  formData.append(key, String(value));
+}
+
+function buildSellerFormData(
+  payload: CreateSellerPayload | UpdateSellerPayload,
+) {
+  const formData = new FormData();
+
+  appendOptional(formData, "name", payload.name);
+  appendOptional(formData, "email", payload.email);
+  appendOptional(formData, "address", payload.address);
+  appendOptional(formData, "cep", payload.cep);
+  appendOptional(formData, "phone", payload.phone);
+  appendOptional(formData, "logo", payload.logo);
+  appendOptional(formData, "primaryColor", payload.primaryColor);
+  appendOptional(formData, "secondaryColor", payload.secondaryColor);
+
+  if ("clearLogo" in payload) {
+    appendOptional(formData, "clearLogo", payload.clearLogo);
+  }
+
+  return formData;
 }
 
 export interface UpdateSellerUserAccessPayload {
@@ -35,10 +71,10 @@ export const sellersService = {
   getById: (id: number) => api.get<Seller>(`/sellers/${id}`),
 
   create: (payload: CreateSellerPayload) =>
-    api.post<Seller>("/sellers", payload),
+    api.post<Seller>("/sellers", buildSellerFormData(payload)),
 
-  update: (id: number, payload: Partial<CreateSellerPayload>) =>
-    api.patch<Seller>(`/sellers/${id}`, payload),
+  update: (id: number, payload: UpdateSellerPayload) =>
+    api.patch<Seller>(`/sellers/${id}`, buildSellerFormData(payload)),
 
   remove: (id: number) => api.delete<Seller>(`/sellers/${id}`),
 

@@ -66,6 +66,7 @@ export default function SellerProductDetailPage({
 
   useEffect(() => {
     if (sp) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Populate editable fields from the fetched offer.
       setPriceCents(sp.unitPriceCents);
       setStock(sp.stockAmount);
       setSku(sp.sku ?? "");

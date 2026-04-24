@@ -28,6 +28,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -38,6 +39,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { useRouter } from "next/navigation";
+import { ImageFilePreview } from "@/components/forms/image-file-preview";
 
 export default function ProductDetailPage({
   params,
@@ -63,9 +65,13 @@ export default function ProductDetailPage({
   const [brand, setBrand] = useState("");
   const [unit, setUnit] = useState("");
   const [size, setSize] = useState("");
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [clearImages, setClearImages] = useState(false);
+  const [imageInputKey, setImageInputKey] = useState(0);
 
   useEffect(() => {
     if (product) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Populate editable fields from the fetched record.
       setName(product.name);
       setDescription(product.description ?? "");
       setBrand(product.brand ?? "");
@@ -82,11 +88,22 @@ export default function ProductDetailPage({
         brand,
         unit,
         size,
+        clearImages: clearImages || undefined,
+        images: imageFiles.length
+          ? imageFiles.map((file, index) => ({
+              file,
+              position: index,
+              isPrimary: index === 0,
+            }))
+          : undefined,
       }),
     onSuccess: (updated) => {
       qc.setQueryData(queryKeys.products.byId(productId), updated);
       qc.invalidateQueries({ queryKey: queryKeys.products.all() });
       toast.success("Produto atualizado");
+      setImageFiles([]);
+      setClearImages(false);
+      setImageInputKey((key) => key + 1);
     },
     onError: (err: unknown) => {
       const msg =
@@ -116,6 +133,8 @@ export default function ProductDetailPage({
   const images = product?.images ?? [];
   const primaryImage =
     images.find((i) => i.isPrimary) ?? images[0] ?? null;
+  const pendingPrimaryImage = imageFiles[0] ?? null;
+  const showExistingImages = !clearImages && imageFiles.length === 0;
 
   return (
     <div className="space-y-6">
@@ -186,7 +205,13 @@ export default function ProductDetailPage({
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="aspect-square rounded-md border border-border bg-muted overflow-hidden flex items-center justify-center">
-                {primaryImage ? (
+                {pendingPrimaryImage ? (
+                  <ImageFilePreview
+                    file={pendingPrimaryImage}
+                    alt={`Nova imagem do produto ${product.name}`}
+                    className="size-full border-0"
+                  />
+                ) : showExistingImages && primaryImage ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={primaryImage.url}
@@ -197,7 +222,18 @@ export default function ProductDetailPage({
                   <ImageIcon className="size-10 text-muted-foreground" />
                 )}
               </div>
-              {images.length > 1 && (
+              {imageFiles.length > 1 ? (
+                <div className="grid grid-cols-4 gap-2">
+                  {imageFiles.map((file) => (
+                    <ImageFilePreview
+                      key={`${file.name}-${file.lastModified}`}
+                      file={file}
+                      alt={`Nova imagem ${file.name}`}
+                      className="aspect-square"
+                    />
+                  ))}
+                </div>
+              ) : showExistingImages && images.length > 1 ? (
                 <div className="grid grid-cols-4 gap-2">
                   {images.map((img) => (
                     <div
@@ -213,7 +249,7 @@ export default function ProductDetailPage({
                     </div>
                   ))}
                 </div>
-              )}
+              ) : null}
 
               {product.barcodes && product.barcodes.length > 0 && (
                 <div className="pt-3 border-t border-border">
@@ -296,6 +332,55 @@ export default function ProductDetailPage({
                   onChange={(e) => setSize(e.target.value)}
                 />
               </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="product-images">Substituir imagens</Label>
+                <Input
+                  key={imageInputKey}
+                  id="product-images"
+                  type="file"
+                  multiple
+                  accept="image/avif,image/gif,image/jpeg,image/png,image/webp"
+                  disabled={!isAdmin || clearImages}
+                  onChange={(event) =>
+                    setImageFiles(Array.from(event.target.files ?? []))
+                  }
+                />
+                {imageFiles.length > 0 && (
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {imageFiles.map((file) => (
+                      <figure
+                        key={`${file.name}-${file.lastModified}`}
+                        className="space-y-1"
+                      >
+                        <ImageFilePreview
+                          file={file}
+                          alt={`Prévia da imagem ${file.name}`}
+                          className="aspect-square"
+                        />
+                        <figcaption className="truncate text-xs text-muted-foreground">
+                          {file.name}
+                        </figcaption>
+                      </figure>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {images.length > 0 && (
+                <label className="sm:col-span-2 flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={clearImages}
+                    disabled={!isAdmin}
+                    onCheckedChange={(checked) => {
+                      setClearImages(checked === true);
+                      if (checked === true) {
+                        setImageFiles([]);
+                        setImageInputKey((key) => key + 1);
+                      }
+                    }}
+                  />
+                  Remover imagens atuais
+                </label>
+              )}
 
               {isAdmin && (
                 <div className="sm:col-span-2 flex justify-end pt-2">

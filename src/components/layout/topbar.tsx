@@ -4,6 +4,7 @@ import Link from "next/link";
 import { LogOut, User as UserIcon, ChevronDown } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { initials, ROLE_LABEL } from "@/lib/formatters";
+import { MobileSidebar, SidebarBrand } from "@/components/layout/sidebar";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -22,6 +23,11 @@ export function Topbar() {
 
   return (
     <header className="h-16 shrink-0 border-b border-border bg-background/95 backdrop-blur flex items-center gap-4 px-4 lg:px-6">
+      <div className="flex items-center gap-2 md:hidden">
+        <MobileSidebar />
+        <SidebarBrand />
+      </div>
+
       <div className="flex-1" />
 
       <DropdownMenu>

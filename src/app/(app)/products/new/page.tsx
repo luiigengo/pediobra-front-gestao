@@ -1,6 +1,6 @@
 "use client";
 
-import { useFieldArray, useForm } from "react-hook-form";
+import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Loader2, Plus, Save, Trash2 } from "lucide-react";
@@ -25,6 +25,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ImageFilePreview } from "@/components/forms/image-file-preview";
 
 const schema = z.object({
   name: z.string().min(2, "Informe o nome"),
@@ -37,19 +38,22 @@ const schema = z.object({
   images: z
     .array(
       z.object({
-        url: z.string().url("URL inválida"),
+        file: z
+          .any()
+          .refine(
+            (value) => typeof File !== "undefined" && value instanceof File,
+            "Selecione uma imagem",
+          ),
         isPrimary: z.boolean().optional(),
       }),
-    )
-    .default([]),
+    ),
   barcodes: z
     .array(
       z.object({
         barcode: z.string().min(1, "Código obrigatório"),
         barcodeType: z.string().optional().or(z.literal("")),
       }),
-    )
-    .default([]),
+    ),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -74,6 +78,7 @@ export default function NewProductPage() {
   });
 
   const imagesFA = useFieldArray({ control: form.control, name: "images" });
+  const imageRows = useWatch({ control: form.control, name: "images" });
   const barcodesFA = useFieldArray({
     control: form.control,
     name: "barcodes",
@@ -90,7 +95,7 @@ export default function NewProductPage() {
         weight: values.weight ? Number(values.weight) : undefined,
         categoryId: values.categoryId ? Number(values.categoryId) : undefined,
         images: values.images.map((img, i) => ({
-          url: img.url,
+          file: img.file as File,
           isPrimary: !!img.isPrimary,
           position: i,
         })),
@@ -207,7 +212,7 @@ export default function NewProductPage() {
             <CardHeader className="flex-row items-center justify-between space-y-0">
               <div>
                 <CardTitle>Imagens</CardTitle>
-                <CardDescription>URLs do produto.</CardDescription>
+                <CardDescription>Arquivos do produto.</CardDescription>
               </div>
               <Button
                 type="button"
@@ -215,7 +220,7 @@ export default function NewProductPage() {
                 size="sm"
                 onClick={() =>
                   imagesFA.append({
-                    url: "",
+                    file: undefined,
                     isPrimary: imagesFA.fields.length === 0,
                   })
                 }
@@ -230,40 +235,93 @@ export default function NewProductPage() {
                   Nenhuma imagem.
                 </p>
               )}
-              {imagesFA.fields.map((field, index) => (
-                <div
-                  key={field.id}
-                  className="rounded-md border border-border p-2 space-y-2"
-                >
-                  <Input
-                    placeholder="https://…"
-                    {...form.register(`images.${index}.url` as const)}
-                  />
-                  <div className="flex items-center justify-between">
-                    <label className="flex items-center gap-2 text-xs cursor-pointer">
-                      <Checkbox
-                        checked={!!form.watch(`images.${index}.isPrimary`)}
-                        onCheckedChange={(v) =>
-                          form.setValue(
-                            `images.${index}.isPrimary`,
-                            v === true,
-                          )
+              {imagesFA.fields.map((field, index) => {
+                const selectedFile =
+                  typeof File !== "undefined" &&
+                  imageRows?.[index]?.file instanceof File
+                    ? imageRows[index].file
+                    : null;
+
+                return (
+                  <div
+                    key={field.id}
+                    className="rounded-md border border-border p-2 space-y-2"
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row">
+                      <ImageFilePreview
+                        file={selectedFile}
+                        alt={
+                          selectedFile
+                            ? `Prévia da imagem ${selectedFile.name}`
+                            : "Prévia da imagem do produto"
                         }
+                        className="size-20 shrink-0"
                       />
-                      Imagem principal
-                    </label>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-7 text-destructive"
-                      onClick={() => imagesFA.remove(index)}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
+                      <div className="min-w-0 flex-1 space-y-1.5">
+                        <Label htmlFor={`image-${field.id}`}>Arquivo</Label>
+                        <Input
+                          id={`image-${field.id}`}
+                          type="file"
+                          accept="image/avif,image/gif,image/jpeg,image/png,image/webp"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            form.setValue(`images.${index}.file`, file, {
+                              shouldDirty: true,
+                              shouldValidate: true,
+                            });
+                          }}
+                        />
+                        {selectedFile && (
+                          <p className="truncate text-xs text-muted-foreground">
+                            {selectedFile.name}
+                          </p>
+                        )}
+                        {form.formState.errors.images?.[index]?.file && (
+                          <p className="text-xs text-destructive" role="alert">
+                            {String(
+                              form.formState.errors.images[index]?.file
+                                ?.message,
+                            )}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 text-xs cursor-pointer">
+                        <Checkbox
+                          checked={!!imageRows?.[index]?.isPrimary}
+                          onCheckedChange={(v) => {
+                            if (v === true) {
+                              imagesFA.fields.forEach((_, fieldIndex) => {
+                                form.setValue(
+                                  `images.${fieldIndex}.isPrimary`,
+                                  fieldIndex === index,
+                                );
+                              });
+                              return;
+                            }
+
+                            form.setValue(
+                              `images.${index}.isPrimary`,
+                              false,
+                            );
+                          }}
+                        />
+                        Imagem principal
+                      </label>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-7 text-destructive"
+                        onClick={() => imagesFA.remove(index)}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </CardContent>
           </Card>
 

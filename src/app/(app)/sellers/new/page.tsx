@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -23,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/use-auth";
+import { ImageFilePreview } from "@/components/forms/image-file-preview";
 
 const schema = z.object({
   name: z.string().min(2, "Informe o nome"),
@@ -30,7 +32,6 @@ const schema = z.object({
   address: z.string().min(3, "Informe o endereço"),
   cep: z.string().min(8, "CEP deve ter 8 dígitos"),
   phone: z.string().min(8, "Informe o telefone"),
-  logo: z.string().url().optional().or(z.literal("")),
   primaryColor: z.string().optional().or(z.literal("")),
   secondaryColor: z.string().optional().or(z.literal("")),
 });
@@ -41,6 +42,7 @@ export default function NewSellerPage() {
   const router = useRouter();
   const qc = useQueryClient();
   const { isAdmin } = useAuth();
+  const [logoFile, setLogoFile] = useState<File | undefined>();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -50,7 +52,6 @@ export default function NewSellerPage() {
       address: "",
       cep: "",
       phone: "",
-      logo: "",
       primaryColor: "",
       secondaryColor: "",
     },
@@ -64,7 +65,7 @@ export default function NewSellerPage() {
         address: values.address,
         cep: values.cep.replace(/\D/g, ""),
         phone: values.phone.replace(/\D/g, ""),
-        logo: values.logo || undefined,
+        logo: logoFile,
         primaryColor: values.primaryColor || undefined,
         secondaryColor: values.secondaryColor || undefined,
       };
@@ -185,13 +186,34 @@ export default function NewSellerPage() {
               )}
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="logo">Logo (URL, opcional)</Label>
-              <Input
-                id="logo"
-                placeholder="https://…"
-                {...form.register("logo")}
-              />
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="logo">Logo (opcional)</Label>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <ImageFilePreview
+                  file={logoFile}
+                  alt={
+                    logoFile
+                      ? `Prévia da logo ${logoFile.name}`
+                      : "Prévia da logo"
+                  }
+                  className="size-16 shrink-0"
+                />
+                <div className="flex-1 space-y-2">
+                  <Input
+                    id="logo"
+                    type="file"
+                    accept="image/avif,image/gif,image/jpeg,image/png,image/webp"
+                    onChange={(event) =>
+                      setLogoFile(event.target.files?.[0] ?? undefined)
+                    }
+                  />
+                  {logoFile && (
+                    <p className="text-xs text-muted-foreground">
+                      {logoFile.name}
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="space-y-2">

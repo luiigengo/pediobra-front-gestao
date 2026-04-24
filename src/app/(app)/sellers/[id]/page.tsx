@@ -22,6 +22,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ImageFilePreview } from "@/components/forms/image-file-preview";
 
 export default function SellerDetailPage({
   params,
@@ -48,9 +50,13 @@ export default function SellerDetailPage({
   const [address, setAddress] = useState("");
   const [cep, setCep] = useState("");
   const [phone, setPhone] = useState("");
+  const [logoFile, setLogoFile] = useState<File | undefined>();
+  const [clearLogo, setClearLogo] = useState(false);
+  const [logoInputKey, setLogoInputKey] = useState(0);
 
   useEffect(() => {
     if (seller) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Populate editable fields from the fetched seller.
       setName(seller.name);
       setEmail(seller.email);
       setAddress(seller.address);
@@ -61,11 +67,22 @@ export default function SellerDetailPage({
 
   const mutation = useMutation({
     mutationFn: () =>
-      sellersService.update(sellerId, { name, email, address, cep, phone }),
+      sellersService.update(sellerId, {
+        name,
+        email,
+        address,
+        cep,
+        phone,
+        logo: logoFile,
+        clearLogo: clearLogo || undefined,
+      }),
     onSuccess: (updated) => {
       qc.setQueryData(queryKeys.sellers.byId(sellerId), updated);
       qc.invalidateQueries({ queryKey: queryKeys.sellers.all() });
       toast.success("Loja atualizada");
+      setLogoFile(undefined);
+      setClearLogo(false);
+      setLogoInputKey((key) => key + 1);
     },
     onError: (err: unknown) => {
       const msg =
@@ -172,6 +189,54 @@ export default function SellerDetailPage({
               <p className="text-xs text-muted-foreground">
                 {formatCep(seller.cep)}
               </p>
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="logo">Logo</Label>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <ImageFilePreview
+                  file={logoFile}
+                  src={clearLogo ? null : seller.logo}
+                  alt={
+                    logoFile
+                      ? `Nova logo da loja ${seller.name}`
+                      : `Logo da loja ${seller.name}`
+                  }
+                  className="size-16 shrink-0"
+                />
+                <div className="flex-1 space-y-2">
+                  <Input
+                    key={logoInputKey}
+                    id="logo"
+                    type="file"
+                    accept="image/avif,image/gif,image/jpeg,image/png,image/webp"
+                    disabled={!canEdit || clearLogo}
+                    onChange={(event) =>
+                      setLogoFile(event.target.files?.[0] ?? undefined)
+                    }
+                  />
+                  {logoFile && (
+                    <p className="text-xs text-muted-foreground">
+                      {logoFile.name}
+                    </p>
+                  )}
+                </div>
+              </div>
+              {seller.logo && (
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={clearLogo}
+                    disabled={!canEdit}
+                    onCheckedChange={(checked) => {
+                      setClearLogo(checked === true);
+                      if (checked === true) {
+                        setLogoFile(undefined);
+                        setLogoInputKey((key) => key + 1);
+                      }
+                    }}
+                  />
+                  Remover logo atual
+                </label>
+              )}
             </div>
 
             {canEdit && (

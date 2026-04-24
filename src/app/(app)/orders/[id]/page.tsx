@@ -42,6 +42,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ImageFilePreview } from "@/components/forms/image-file-preview";
 import {
   Select,
   SelectContent,
@@ -94,8 +95,9 @@ export default function OrderDetailPage({
   const [cancelDetails, setCancelDetails] = useState("");
   const [driverSel, setDriverSel] = useState<string>("");
   const [evType, setEvType] = useState<EvidenceType>("GENERAL");
-  const [evUrl, setEvUrl] = useState("");
+  const [evFile, setEvFile] = useState<File | null>(null);
   const [evNote, setEvNote] = useState("");
+  const [evFileInputKey, setEvFileInputKey] = useState(0);
 
   const statusMutation = useMutation({
     mutationFn: () => {
@@ -151,23 +153,30 @@ export default function OrderDetailPage({
   });
 
   const evidenceMutation = useMutation({
-    mutationFn: () =>
-      ordersService.addEvidence(orderId, {
+    mutationFn: () => {
+      if (!evFile) throw new Error("Selecione uma imagem");
+
+      return ordersService.addEvidence(orderId, {
         evidenceType: evType,
-        imageUrl: evUrl,
+        image: evFile,
         note: evNote || undefined,
-      }),
-    onSuccess: (updated) => {
-      qc.setQueryData(queryKeys.orders.byId(orderId), updated);
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.orders.byId(orderId) });
+      qc.invalidateQueries({ queryKey: queryKeys.orders.all() });
       toast.success("Evidência adicionada");
-      setEvUrl("");
+      setEvFile(null);
       setEvNote("");
+      setEvFileInputKey((key) => key + 1);
     },
     onError: (err: unknown) => {
       const msg =
         err instanceof ApiError
           ? err.displayMessage
-          : "Não foi possível adicionar";
+          : err instanceof Error
+            ? err.message
+            : "Não foi possível adicionar";
       toast.error(msg);
     },
   });
@@ -406,13 +415,34 @@ export default function OrderDetailPage({
                     </Select>
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="ev-url">URL da imagem</Label>
-                    <Input
-                      id="ev-url"
-                      placeholder="https://…"
-                      value={evUrl}
-                      onChange={(e) => setEvUrl(e.target.value)}
-                    />
+                    <Label htmlFor="ev-image">Imagem</Label>
+                    <div className="flex flex-col gap-3 sm:flex-row">
+                      <ImageFilePreview
+                        file={evFile}
+                        alt={
+                          evFile
+                            ? `Prévia da evidência ${evFile.name}`
+                            : "Prévia da evidência"
+                        }
+                        className="size-20 shrink-0"
+                      />
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <Input
+                          key={evFileInputKey}
+                          id="ev-image"
+                          type="file"
+                          accept="image/avif,image/gif,image/jpeg,image/png,image/webp"
+                          onChange={(event) =>
+                            setEvFile(event.target.files?.[0] ?? null)
+                          }
+                        />
+                        {evFile && (
+                          <p className="truncate text-xs text-muted-foreground">
+                            {evFile.name}
+                          </p>
+                        )}
+                      </div>
+                    </div>
                   </div>
                   <div className="space-y-1.5 sm:col-span-2">
                     <Label htmlFor="ev-note">Observação (opcional)</Label>
@@ -427,7 +457,7 @@ export default function OrderDetailPage({
                     <Button
                       size="sm"
                       onClick={() => evidenceMutation.mutate()}
-                      disabled={!evUrl || evidenceMutation.isPending}
+                      disabled={!evFile || evidenceMutation.isPending}
                     >
                       {evidenceMutation.isPending ? (
                         <Loader2 className="size-4 animate-spin" />

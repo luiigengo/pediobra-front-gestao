@@ -2,6 +2,7 @@ import { api } from "./client";
 import type {
   EvidenceType,
   Order,
+  OrderEvidence,
   OrderStatus,
   Paginated,
 } from "./types";
@@ -38,8 +39,18 @@ export interface AssignDriverPayload {
 
 export interface CreateOrderEvidencePayload {
   evidenceType: EvidenceType;
-  imageUrl: string;
+  image: File;
   note?: string;
+}
+
+function buildOrderEvidenceFormData(payload: CreateOrderEvidencePayload) {
+  const formData = new FormData();
+
+  formData.append("evidenceType", payload.evidenceType);
+  formData.append("image", payload.image);
+  if (payload.note) formData.append("note", payload.note);
+
+  return formData;
 }
 
 export const ordersService = {
@@ -58,5 +69,8 @@ export const ordersService = {
     api.patch<Order>(`/orders/${id}/assign-driver`, payload),
 
   addEvidence: (id: number, payload: CreateOrderEvidencePayload) =>
-    api.post<Order>(`/orders/${id}/evidences`, payload),
+    api.post<OrderEvidence>(
+      `/orders/${id}/evidences`,
+      buildOrderEvidenceFormData(payload),
+    ),
 };

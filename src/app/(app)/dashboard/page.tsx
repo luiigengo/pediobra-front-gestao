@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQueries } from "@tanstack/react-query";
 import Link from "next/link";
 import {
@@ -105,7 +106,7 @@ export default function DashboardPage() {
   const ordersAll = ordersAllQ.data?.data ?? [];
   const statusCounts = countByStatus(ordersAll);
 
-  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const [sevenDaysAgo] = useState(() => Date.now() - 7 * 24 * 60 * 60 * 1000);
   const revenueCents7d = ordersAll
     .filter(
       (o) =>
