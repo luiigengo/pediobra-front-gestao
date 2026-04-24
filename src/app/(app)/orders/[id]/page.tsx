@@ -1,0 +1,644 @@
+"use client";
+
+import { use, useState } from "react";
+import Link from "next/link";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  ArrowLeft,
+  Camera,
+  CheckCircle2,
+  Image as ImageIcon,
+  Loader2,
+  MapPin,
+  Package,
+  Truck,
+  UserRound,
+} from "lucide-react";
+import { toast } from "sonner";
+import { ordersService } from "@/lib/api/orders";
+import { driversService } from "@/lib/api/drivers";
+import { ApiError } from "@/lib/api/client";
+import { queryKeys } from "@/lib/query-keys";
+import { useAuth } from "@/hooks/use-auth";
+import {
+  centsToBRL,
+  EVIDENCE_TYPE_LABEL,
+  formatDateTime,
+  formatOrderCode,
+  formatPhone,
+  ORDER_STATUS_LABEL,
+} from "@/lib/formatters";
+import { allowedOrderStatusTransitions } from "@/lib/auth/permissions";
+import { PageHeader } from "@/components/layout/page-header";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { OrderStatusBadge, PaymentStatusBadge } from "@/components/badges";
+import type { EvidenceType, OrderStatus } from "@/lib/api/types";
+
+const EVIDENCE_TYPES: EvidenceType[] = [
+  "SELLER_CONFIRMATION",
+  "DRIVER_CONFIRMATION",
+  "DELIVERY_PHOTO",
+  "PICKUP_PHOTO",
+  "GENERAL",
+];
+
+export default function OrderDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = use(params);
+  const orderId = Number(id);
+  const { user, isAdmin } = useAuth();
+  const qc = useQueryClient();
+
+  const query = useQuery({
+    queryKey: queryKeys.orders.byId(orderId),
+    queryFn: () => ordersService.getById(orderId),
+    enabled: Number.isFinite(orderId),
+  });
+
+  const driversQ = useQuery({
+    queryKey: queryKeys.drivers.list({ page: 1, limit: 50, status: "APPROVED" }),
+    queryFn: () =>
+      driversService.list({ page: 1, limit: 50, status: "APPROVED" }),
+    enabled: isAdmin,
+  });
+
+  const order = query.data;
+  const transitions = allowedOrderStatusTransitions(
+    user,
+    order ?? { sellerId: 0, status: "" },
+  );
+
+  const [nextStatus, setNextStatus] = useState<OrderStatus | "">("");
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelDetails, setCancelDetails] = useState("");
+  const [driverSel, setDriverSel] = useState<string>("");
+  const [evType, setEvType] = useState<EvidenceType>("GENERAL");
+  const [evUrl, setEvUrl] = useState("");
+  const [evNote, setEvNote] = useState("");
+
+  const statusMutation = useMutation({
+    mutationFn: () => {
+      if (!nextStatus) throw new Error("Selecione um status");
+      return ordersService.updateStatus(orderId, {
+        status: nextStatus,
+        cancellationReason:
+          nextStatus === "CANCELLED" ? cancelReason || undefined : undefined,
+        cancellationDetails:
+          nextStatus === "CANCELLED" ? cancelDetails || undefined : undefined,
+      });
+    },
+    onSuccess: (updated) => {
+      qc.setQueryData(queryKeys.orders.byId(orderId), updated);
+      qc.invalidateQueries({ queryKey: queryKeys.orders.all() });
+      toast.success("Status atualizado");
+      setNextStatus("");
+      setCancelReason("");
+      setCancelDetails("");
+    },
+    onError: (err: unknown) => {
+      const msg =
+        err instanceof ApiError
+          ? err.displayMessage
+          : err instanceof Error
+            ? err.message
+            : "Não foi possível atualizar o status";
+      toast.error(msg);
+    },
+  });
+
+  const assignMutation = useMutation({
+    mutationFn: () => {
+      if (!driverSel) throw new Error("Selecione um motorista");
+      return ordersService.assignDriver(orderId, {
+        driverProfileId: Number(driverSel),
+      });
+    },
+    onSuccess: (updated) => {
+      qc.setQueryData(queryKeys.orders.byId(orderId), updated);
+      toast.success("Motorista atribuído");
+      setDriverSel("");
+    },
+    onError: (err: unknown) => {
+      const msg =
+        err instanceof ApiError
+          ? err.displayMessage
+          : err instanceof Error
+            ? err.message
+            : "Não foi possível atribuir";
+      toast.error(msg);
+    },
+  });
+
+  const evidenceMutation = useMutation({
+    mutationFn: () =>
+      ordersService.addEvidence(orderId, {
+        evidenceType: evType,
+        imageUrl: evUrl,
+        note: evNote || undefined,
+      }),
+    onSuccess: (updated) => {
+      qc.setQueryData(queryKeys.orders.byId(orderId), updated);
+      toast.success("Evidência adicionada");
+      setEvUrl("");
+      setEvNote("");
+    },
+    onError: (err: unknown) => {
+      const msg =
+        err instanceof ApiError
+          ? err.displayMessage
+          : "Não foi possível adicionar";
+      toast.error(msg);
+    },
+  });
+
+  if (query.isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  if (!order) {
+    return (
+      <div className="space-y-6">
+        <Button asChild variant="ghost" size="sm" className="-ml-3">
+          <Link href="/orders">
+            <ArrowLeft className="size-4" />
+            Voltar
+          </Link>
+        </Button>
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">
+            Pedido não encontrado.
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const canChangeStatus = transitions.length > 0;
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <Button asChild variant="ghost" size="sm" className="-ml-3">
+          <Link href="/orders">
+            <ArrowLeft className="size-4" />
+            Voltar para pedidos
+          </Link>
+        </Button>
+      </div>
+
+      <PageHeader
+        title={
+          <span className="font-mono">{formatOrderCode(order)}</span>
+        }
+        description={`Criado em ${formatDateTime(order.createdAt)}`}
+        actions={
+          <div className="flex items-center gap-2">
+            <OrderStatusBadge status={order.status} />
+            {order.paymentStatus && (
+              <PaymentStatusBadge status={order.paymentStatus} />
+            )}
+          </div>
+        }
+      />
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="space-y-6 lg:col-span-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Package className="size-4" />
+                Itens ({order.items?.length ?? 0})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {(order.items ?? []).map((item) => {
+                const product = item.sellerProduct?.product;
+                const primary =
+                  product?.images?.find((i) => i.isPrimary) ??
+                  product?.images?.[0];
+                return (
+                  <div
+                    key={item.id}
+                    className="flex gap-3 border-b border-border pb-3 last:border-0 last:pb-0"
+                  >
+                    <div className="size-16 shrink-0 rounded-md border border-border bg-muted flex items-center justify-center overflow-hidden">
+                      {primary ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={primary.url}
+                          alt={product?.name ?? ""}
+                          className="size-full object-cover"
+                        />
+                      ) : (
+                        <ImageIcon className="size-5 text-muted-foreground" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm">
+                        {product?.name ?? `Produto #${item.sellerProductId}`}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {item.quantity} × {centsToBRL(item.unitPriceCents)}
+                      </p>
+                    </div>
+                    <div className="text-sm font-mono font-semibold">
+                      {centsToBRL(item.totalPriceCents)}
+                    </div>
+                  </div>
+                );
+              })}
+
+              <div className="flex justify-between border-t border-border pt-3 text-sm">
+                <span className="text-muted-foreground">Taxa de entrega</span>
+                <span className="font-mono">
+                  {centsToBRL(order.deliveryFeeCents ?? 0)}
+                </span>
+              </div>
+              <div className="flex justify-between text-base font-semibold">
+                <span>Total</span>
+                <span className="font-mono">
+                  {centsToBRL(order.totalAmountCents)}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Timeline</CardTitle>
+              <CardDescription>Histórico de mudanças de status.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {order.statusHistory?.length ? (
+                <ol className="relative border-l border-border ml-2 space-y-4">
+                  {[...order.statusHistory]
+                    .sort(
+                      (a, b) =>
+                        new Date(b.createdAt).getTime() -
+                        new Date(a.createdAt).getTime(),
+                    )
+                    .map((h) => (
+                      <li key={h.id} className="ml-4">
+                        <div className="absolute -left-1.5 size-3 rounded-full bg-primary border-2 border-background" />
+                        <div className="flex items-center gap-2">
+                          <OrderStatusBadge status={h.status} />
+                          <span className="text-xs text-muted-foreground">
+                            {formatDateTime(h.createdAt)}
+                          </span>
+                        </div>
+                        {h.note && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {h.note}
+                          </p>
+                        )}
+                        {h.changedByUser && (
+                          <p className="text-xs text-muted-foreground">
+                            por {h.changedByUser.name}
+                          </p>
+                        )}
+                      </li>
+                    ))}
+                </ol>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Sem histórico disponível.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Camera className="size-4" />
+                Evidências ({order.evidences?.length ?? 0})
+              </CardTitle>
+              <CardDescription>
+                Fotos de coleta, entrega e confirmações.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {order.evidences?.length ? (
+                <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
+                  {order.evidences.map((e) => (
+                    <a
+                      key={e.id}
+                      href={e.imageUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="group block rounded-md border border-border overflow-hidden bg-muted"
+                    >
+                      <div className="aspect-square overflow-hidden">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={e.imageUrl}
+                          alt={EVIDENCE_TYPE_LABEL[e.evidenceType]}
+                          className="size-full object-cover group-hover:scale-105 transition-transform"
+                        />
+                      </div>
+                      <div className="p-2 bg-card">
+                        <p className="text-xs font-medium">
+                          {EVIDENCE_TYPE_LABEL[e.evidenceType]}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {formatDateTime(e.createdAt)}
+                        </p>
+                        {e.note && (
+                          <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">
+                            {e.note}
+                          </p>
+                        )}
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Nenhuma evidência enviada ainda.
+                </p>
+              )}
+
+              <div className="border-t border-border pt-4 space-y-3">
+                <p className="text-sm font-medium">Adicionar evidência</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label>Tipo</Label>
+                    <Select
+                      value={evType}
+                      onValueChange={(v) => setEvType(v as EvidenceType)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {EVIDENCE_TYPES.map((t) => (
+                          <SelectItem key={t} value={t}>
+                            {EVIDENCE_TYPE_LABEL[t]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="ev-url">URL da imagem</Label>
+                    <Input
+                      id="ev-url"
+                      placeholder="https://…"
+                      value={evUrl}
+                      onChange={(e) => setEvUrl(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label htmlFor="ev-note">Observação (opcional)</Label>
+                    <Textarea
+                      id="ev-note"
+                      rows={2}
+                      value={evNote}
+                      onChange={(e) => setEvNote(e.target.value)}
+                    />
+                  </div>
+                  <div className="sm:col-span-2 flex justify-end">
+                    <Button
+                      size="sm"
+                      onClick={() => evidenceMutation.mutate()}
+                      disabled={!evUrl || evidenceMutation.isPending}
+                    >
+                      {evidenceMutation.isPending ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Camera className="size-4" />
+                      )}
+                      Enviar
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {order.payments?.length ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Pagamentos ({order.payments.length})</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {order.payments.map((p) => (
+                  <div
+                    key={p.id}
+                    className="flex items-center justify-between border-b border-border pb-2 last:border-0 last:pb-0"
+                  >
+                    <div>
+                      <div className="text-sm font-medium">
+                        {p.provider ?? "—"} · {p.method ?? "—"}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {formatDateTime(p.createdAt)}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <PaymentStatusBadge status={p.status} />
+                      <span className="font-mono text-sm font-semibold">
+                        {centsToBRL(p.amountCents)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          ) : null}
+        </div>
+
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <UserRound className="size-4" />
+                Cliente
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-1 text-sm">
+              <div className="font-medium">
+                {order.clientUser?.name ?? `#${order.clientUserId}`}
+              </div>
+              {order.clientUser?.email && (
+                <div className="text-muted-foreground">
+                  {order.clientUser.email}
+                </div>
+              )}
+              {order.contactPhone && (
+                <div className="text-muted-foreground">
+                  {formatPhone(order.contactPhone)}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <MapPin className="size-4" />
+                Entrega
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-1 text-sm">
+              <p>{order.deliveryAddress}</p>
+              {order.deliveryCep && (
+                <p className="text-muted-foreground">CEP {order.deliveryCep}</p>
+              )}
+              {order.notes && (
+                <p className="text-xs text-muted-foreground border-l-2 border-border pl-2 mt-2">
+                  {order.notes}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Truck className="size-4" />
+                Motorista
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {order.assignedDriverProfile ? (
+                <div className="text-sm space-y-1">
+                  <div className="font-medium">
+                    {order.assignedDriverProfile.user?.name ??
+                      `Motorista #${order.assignedDriverProfile.id}`}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {formatPhone(order.assignedDriverProfile.phone)}
+                  </div>
+                  {order.assignedDriverProfile.vehicles?.[0] && (
+                    <div className="text-xs text-muted-foreground">
+                      {order.assignedDriverProfile.vehicles[0].model} ·{" "}
+                      {order.assignedDriverProfile.vehicles[0].plate}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Sem motorista atribuído.
+                </p>
+              )}
+
+              {isAdmin && (
+                <div className="border-t border-border pt-3 space-y-2">
+                  <Label>Atribuir motorista</Label>
+                  <Select value={driverSel} onValueChange={setDriverSel}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecionar" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(driversQ.data?.data ?? []).map((d) => (
+                        <SelectItem key={d.id} value={String(d.id)}>
+                          {d.user?.name ?? `#${d.id}`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    size="sm"
+                    className="w-full"
+                    onClick={() => assignMutation.mutate()}
+                    disabled={!driverSel || assignMutation.isPending}
+                  >
+                    {assignMutation.isPending ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="size-4" />
+                    )}
+                    Atribuir
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {canChangeStatus && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Mudar status</CardTitle>
+                <CardDescription>
+                  Estados permitidos pelo seu perfil.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Select
+                  value={nextStatus}
+                  onValueChange={(v) => setNextStatus(v as OrderStatus)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Novo status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {transitions.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {ORDER_STATUS_LABEL[s as OrderStatus]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {nextStatus === "CANCELLED" && (
+                  <div className="space-y-2">
+                    <Input
+                      placeholder="Motivo"
+                      value={cancelReason}
+                      onChange={(e) => setCancelReason(e.target.value)}
+                    />
+                    <Textarea
+                      placeholder="Detalhes (opcional)"
+                      rows={2}
+                      value={cancelDetails}
+                      onChange={(e) => setCancelDetails(e.target.value)}
+                    />
+                  </div>
+                )}
+
+                <Button
+                  size="sm"
+                  className="w-full"
+                  onClick={() => statusMutation.mutate()}
+                  disabled={!nextStatus || statusMutation.isPending}
+                >
+                  {statusMutation.isPending && (
+                    <Loader2 className="size-4 animate-spin" />
+                  )}
+                  Aplicar
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

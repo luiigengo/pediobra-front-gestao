@@ -1,0 +1,32 @@
+import { api } from "./client";
+import type { Paginated, Payment, PaymentStatus } from "./types";
+
+export interface ListPaymentsParams {
+  page?: number;
+  limit?: number;
+  orderId?: number;
+  status?: PaymentStatus;
+}
+
+export interface CreateMockPaymentPayload {
+  provider?: string;
+  method?: string;
+  transactionId?: string;
+  status?: PaymentStatus;
+}
+
+export const paymentsService = {
+  list: (params: ListPaymentsParams = {}) =>
+    api.get<Paginated<Payment>>("/payments", { query: params }),
+
+  getById: (id: number) => api.get<Payment>(`/payments/${id}`),
+
+  listByOrder: (orderId: number) =>
+    api.get<Payment[]>(`/payments/orders/${orderId}`),
+
+  createMock: (orderId: number, payload: CreateMockPaymentPayload) =>
+    api.post<Payment>(`/payments/orders/${orderId}/mock`, payload),
+
+  updateStatus: (id: number, status: PaymentStatus) =>
+    api.patch<Payment>(`/payments/${id}/status`, { status }),
+};
