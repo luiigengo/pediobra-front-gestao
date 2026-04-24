@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 set -e
 
-bun run check
-bun run lint:ci
-bun run build
+bash ./scripts/use-node.sh bun run check
+bash ./scripts/use-node.sh bun run lint:ci
+bash ./scripts/use-node.sh bun run build
